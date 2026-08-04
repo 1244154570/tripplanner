@@ -35,8 +35,22 @@ tripplanner/
 │       ├── views/task/    # 生成进度：工具⇒阶段实时映射、失败原因
 │       ├── views/trip/    # 路书视图（按天/节点/路线段/预算/待办/风险）、提案对比、版本回滚
 │       └── views/auth/    # 登录/注册（重写）
-└── docker-compose.yml     # PostgreSQL 17（无 PostGIS/pgvector——新库不需要）
+└── docker-compose.yml     # app + PostgreSQL 17 + Redis 7 + Caddy（无 PostGIS/pgvector——新库不需要）
 ```
+
+## 技术栈（2026-08-04 grilling 定稿，Day 1 按此动工）
+
+| 层 | 选型 | 关键理由 |
+| --- | --- | --- |
+| 后端 | JDK 21 + Spring Boot 3.3 + 虚拟线程 | agent 循环是长阻塞 HTTP 密集型（模型 3–60s、工具 1–3s），虚拟线程下直接同步写法 |
+| ORM | MyBatis-Plus | 沿用熟练度；JSONB 用 TypeHandler |
+| 数据库 | PostgreSQL 17 | 6 表结构见 docs/database-schema.sql；无 PostGIS/pgvector |
+| 队列/限流 | Redis 7 + Lettuce 裸用（不引 Redisson/Stream） | 队列 LPUSH/BRPOP；限流 INCR+EXPIRE（原子，免竞态）。任务可安全重跑，不需要 Stream 的不丢保证；崩溃恢复 = 启动时扫 t_generation_task 表，queued/running 但不在队列的孤儿任务标失败让用户重试。t_rate_limit 表降为审计对账 |
+| 进度推送 | 前端 2s 轮询任务状态接口 | 1–3 分钟任务轮询开销可忽略；断线天然恢复，不做 SSE |
+| 前端 | Vue 3 + Vite + TS + Tailwind 自建组件 | 不引组件库：三个核心视图都是沉浸式强视觉页面（用户先前反馈：消费级产品不要后台风） |
+| 地图 | 高德 JS API（Web 端 Key 单独申请，与后端 REST Key 分开） | 路书 polyline/节点 marker 原生支持；实测 polyline 已能拿到 |
+| PDF | 暂不定型 | 降级序列第一位；第 6 天真要做时再在"浏览器打印渲染 vs Java 模板"里选 |
+| 部署 | 单 VPS docker-compose：app + PostgreSQL + Redis + Caddy（自动 HTTPS） | 公开 Alpha 最简可行形态 |
 
 ## 核心架构决定（来自 v0.5，不再重议）
 
